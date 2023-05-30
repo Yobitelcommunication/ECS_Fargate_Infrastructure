@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  creationTimestamp: null
+  labels:
+    app: bucketlist
+  name: bucketlist
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bucketlist
+  strategy: 
+    type: Recreate
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: bucketlist
+    spec:
+      volumes:
+      - name: bucketlist-storage
+        persistentVolumeClaim:
+          claimName: bucketlist-storage
+      containers:
+      - image: ontaptom/bucketlist:0.2
+        name: bucketlist
+        resources: {}
+        volumeMounts:
+        - mountPath: "/app-storage"
+          name: bucketlist-storage
+status: {}
+

@@ -1,0 +1,14 @@
+# This config assumes that either PersistenVolume that meets the requirements is already present
+# Or it will be dynamically provisioned, for example:
+# https://cloud.google.com/kubernetes-engine/docs/concepts/persistent-volumes#dynamic_provisioning
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bucketlist-storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
