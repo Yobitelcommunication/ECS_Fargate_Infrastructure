@@ -1,7 +1,7 @@
 FROM ubuntu:18.04
 ENV LC_ALL C.UTF-8
 ENV LANG C.UTF-8
-EXPOSE 8000
+EXPOSE 80
 COPY . /app
 RUN mkdir /app-storage
 WORKDIR /app
