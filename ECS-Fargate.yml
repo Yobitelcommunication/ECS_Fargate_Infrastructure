@@ -433,7 +433,7 @@ Resources:
       Statistic: Average
       Period: 60
       EvaluationPeriods: 1
-      Threshold: 80
+      Threshold: 70
       ComparisonOperator: GreaterThanThreshold
       AlarmActions:
         - !Ref SnsTopic
