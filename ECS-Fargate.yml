@@ -4,7 +4,7 @@ Description: 'Cloudformation template for ecs cluster with fargate'
 #gtihub hook
 Parameters:
 
-  ImageUri:
+  imagedigest:
     Type: String
     Description: The ID of the container image to use
 
@@ -384,7 +384,7 @@ Resources:
       ContainerDefinitions:
         -
           
-          Image: !Ref ImageUri
+          Image: !Ref imagedigest
           LogConfiguration:
             LogDriver: awslogs
             Options:
