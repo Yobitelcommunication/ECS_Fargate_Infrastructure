@@ -9,6 +9,7 @@ pipeline {
         Region_Name             = 'us-east-1'
         Aws_Id                  = '811187436843'
         Stack_Name              = 'my-stack'
+        Version_Number          = 'V1'
     }
     
     stages {
@@ -37,10 +38,10 @@ pipeline {
         stage('Push') {
             steps {
                 sh '''
-                sudo aws ecr create-repository --repository-name ${Image_Name} --region ${Region_Name} || true   
+                sudo aws ecr create-repository --repository-name ${Image_Name} --region ${Region_Name} || true  # Ignore error if repo already exists    
                 sudo aws ecr get-login-password --region ${Region_Name} | docker login --username AWS --password-stdin ${Aws_Id}.dkr.ecr.${Region_Name}.amazonaws.com
-                sudo docker tag ${Image_Name}:latest ${Aws_Id}.dkr.ecr.${Region_Name}.amazonaws.com/${Image_Name}:latest
-                sudo docker push ${Aws_Id}.dkr.ecr.${Region_Name}.amazonaws.com/${Image_Name}:latest 
+                sudo docker tag ${Image_Name}:latest ${Aws_Id}.dkr.ecr.${Region_Name}.amazonaws.com/${Image_Name}:${Version_Number}
+                sudo docker push ${Aws_Id}.dkr.ecr.${Region_Name}.amazonaws.com/${Image_Name}:${Version_Number}
                 '''
             }
         }
@@ -54,13 +55,13 @@ pipeline {
                     if (stackExists == 0) {
                         script {
                             sh '''
-                            sudo aws cloudformation update-stack --stack-name ${Stack_Name} --template-url https://${Bucket_Name}.s3.amazonaws.com/${Cloudformation_Template} --capabilities CAPABILITY_NAMED_IAM  --parameters ParameterKey=ImageUri,ParameterValue=${Aws_Id}.dkr.ecr.${Region_Name}.amazonaws.com/${Image_Name}:latest || true
+                            sudo aws cloudformation update-stack --stack-name ${Stack_Name} --template-url https://${Bucket_Name}.s3.amazonaws.com/${Cloudformation_Template} --capabilities CAPABILITY_NAMED_IAM  --parameters ParameterKey=ImageId,ParameterValue=${Aws_Id}.dkr.ecr.${Region_Name}.amazonaws.com/${Image_Name}:${Version_Number}
                             '''
                         }
-                    } else {
+                    } else { 
                         script {
                             sh '''
-                            sudo aws cloudformation create-stack --stack-name ${Stack_Name} --template-url https://${Bucket_Name}.s3.amazonaws.com/${Cloudformation_Template} --capabilities CAPABILITY_NAMED_IAM  --parameters ParameterKey=ImageUri,ParameterValue=${Aws_Id}.dkr.ecr.${Region_Name}.amazonaws.com/${Image_Name}:latest
+                            sudo aws cloudformation create-stack --stack-name ${Stack_Name} --template-url https://${Bucket_Name}.s3.amazonaws.com/${Cloudformation_Template} --capabilities CAPABILITY_NAMED_IAM  --parameters ParameterKey=ImageId,ParameterValue=${Aws_Id}.dkr.ecr.${Region_Name}.amazonaws.com/${Image_Name}:${Version_Number}
                             '''
                         }
                     }
@@ -72,4 +73,6 @@ pipeline {
 
 
         
-      
+        
+    
+
