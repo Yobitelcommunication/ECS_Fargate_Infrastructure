@@ -22,7 +22,7 @@ def print_dream():
             <input type="submit" value="Submit">
             </form> <br><br>
             ''' 
-    html += "<h4>Nithin's bucket list:</h4>"
+    html += "<h4>Nithin's bucket's list:</h4>"
     try:
         with open('/app-storage/list.txt') as f:
             for line in f:
