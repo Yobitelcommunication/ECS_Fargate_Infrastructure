@@ -3,13 +3,14 @@ pipeline {
     environment {
         Git_Hub_URL             = 'https://github.com/GOMATHISANKAR22/DockerFile.git'
         Workspace_name          = 'ECS_DEPLOY'
-        Cloudformation_Template = 'ECS-Fargate.yml'
+        Cloudformation_Template = 'ECS-Fargate.yaml'
         Bucket_Name             = 'awsstoragedeploy123'
         Image_Name              = 'test1'
         Region_Name             = 'us-east-1'
         Aws_Id                  = '811187436843'
         Stack_Name              = 'my-stack'
         MailToRecipients        = 'kgomathisankar22@gmail.com'
+        SonarQube_Report_URL    = 'http://3.80.81.84:9000/dashboard?id=New'
     }
     parameters {
         string(name: 'Version_Number', defaultValue: '1.0', description: 'Version Number')
@@ -31,6 +32,31 @@ pipeline {
                 '''
             }
         }
+        stage('SonarQube Analysis') {
+            steps {
+            script {
+                def scannerHome = tool 'sonarqube'; 
+                withSonarQubeEnv('Default')  {
+                sh "${scannerHome}/bin/sonar-scanner -Dsonar.projectKey=New"
+            
+            }
+        }
+        }
+        }
+        stage('SonarQube Analysis Report') {
+            steps {
+              
+                emailext (
+                    subject: "SonarQube Analysis Report",
+                    body: "SonarQube Analysis Report URL: ${SonarQube_Report_URL} \n Username: admin /n Password: OZ@Z!JI.OlT0",
+                    mimeType: 'text/html',
+                    recipientProviders: [[$class: 'CulpritsRecipientProvider'], [$class: 'RequesterRecipientProvider']],
+                    from: "nithincloudnative@gmail.com",
+                    to: "${MailToRecipients}",
+                    
+                )
+            }
+        }
         stage('Send Approval Email for Build Image') {
             steps {
                 emailext (
@@ -39,7 +65,7 @@ pipeline {
                     mimeType: 'text/html',
                     recipientProviders: [[$class: 'CulpritsRecipientProvider'], [$class: 'RequesterRecipientProvider']],
                     from: "nithincloudnativegmail.com",
-                    to: "${MailToRecipients}",                  
+                    to: "${MailToRecipients}",              
                 )
             }
         }
