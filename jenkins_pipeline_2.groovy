@@ -2,18 +2,30 @@ pipeline {
     agent any
     environment {
         Git_Hub_URL             = 'https://github.com/GOMATHISANKAR22/DockerFile.git'
-        Workspace_name          = 'ECS_DEPLOY'
+        Workspace_name          = 'Pipeline_1'
         Cloudformation_Template = 'ECS-Fargate.yaml'
         Bucket_Name             = 'awsstoragedeploy123'
         Image_Name              = 'test1'
         Region_Name             = 'us-east-1'
         Aws_Id                  = '811187436843'
         Stack_Name              = 'my-stack'
-        MailToRecipients        = 'kgomathisankar22@gmail.com'
-        SonarQube_Report_URL    = 'http://3.80.81.84:9000/dashboard?id=New'
+        MailToRecipients        = 'sairamgs22@gmail.com'
+        SonarQube_Report_URL    = 'http://52.91.192.152:9000/dashboard?id=New'
     }
     parameters {
-        string(name: 'Version_Number', defaultValue: '1.0', description: 'Version Number')
+        string  (name: 'Version_Number', defaultValue: '1.0', description: 'Version Number')
+
+        choice  (choices: ["Baseline", "Full"],
+                 description: 'Type of scan that is going to perform inside the container',
+                 name: 'SCAN_TYPE')
+ 
+        string (defaultValue: "http://my-st-loadb-wmpwjviuaw2u-1026254778.us-east-1.elb.amazonaws.com/",
+                 description: 'Target URL to scan',
+                 name: 'TARGET')
+ 
+        booleanParam (defaultValue: true,
+                 description: 'Parameter to know if wanna generate report.',
+                 name: 'GENERATE_REPORT')
     }
     
     stages {
@@ -43,25 +55,11 @@ pipeline {
         }
         }
         }
-        stage('SonarQube Analysis Report') {
-            steps {
-              
-                emailext (
-                    subject: "SonarQube Analysis Report",
-                    body: "SonarQube Analysis Report URL: ${SonarQube_Report_URL} \n Username: admin /n Password: OZ@Z!JI.OlT0",
-                    mimeType: 'text/html',
-                    recipientProviders: [[$class: 'CulpritsRecipientProvider'], [$class: 'RequesterRecipientProvider']],
-                    from: "nithincloudnative@gmail.com",
-                    to: "${MailToRecipients}",
-                    
-                )
-            }
-        }
-        stage('Send Approval Email for Build Image') {
+        stage('Send Sonar Analysis Report and Approval Email for Build Image') {
             steps {
                 emailext (
                     subject: "Approval Needed to Build Docker Image",
-                    body: "Please Approve to Build the Docker Image in Testing Environment\n\n${BUILD_URL}input/",
+                    body: "SonarQube Analysis Report URL: ${SonarQube_Report_URL} \n Username: admin /n Password: OZ@Z!JI.OlT0 \n Please Approve to Build the Docker Image in Testing Environment\n\n${BUILD_URL}input/",
                     mimeType: 'text/html',
                     recipientProviders: [[$class: 'CulpritsRecipientProvider'], [$class: 'RequesterRecipientProvider']],
                     from: "nithincloudnativegmail.com",
@@ -139,6 +137,69 @@ pipeline {
                 }
             }
         }
+        stage('Setup owasp') {
+            steps {
+                script {
+                    echo "Pulling up last OWASP ZAP container --> Start"
+                         sh 'docker pull owasp/zap2docker-stable'
+                         echo "Pulling up last VMS container --> End"
+                         echo "Starting container --> Start"
+                         sh """
+                         docker run -dt --name owasp \
+                         owasp/zap2docker-stable \
+                         /bin/bash
+                         """
+                }
+            }
+        }
+        stage('Prepare wrk directory') {
+             when {
+                         environment name : 'GENERATE_REPORT', value: 'true'
+             }
+             steps {
+                 script {
+                         sh """
+                             docker exec owasp \
+                             mkdir /zap/wrk
+                         """
+                     }
+                 }
+         }
+         stage('Scanning target on owasp container') {
+             steps {
+                 script {
+                     scan_type = "${params.SCAN_TYPE}"
+                     echo "----> scan_type: $scan_type"
+                     target = "${params.TARGET}"
+                     if(scan_type == "Baseline"){
+                         sh """
+                             docker exec owasp zap-baseline.py -t $target -x report.xml -I
+                         """
+                     }
+                    else if(scan_type == "Full"){
+                         sh """
+                             docker exec owasp zap-full-scan.py -t $target -x report.xml -I 
+                         """
+                          }
+                     else{
+                         echo "Something went wrong..."
+                     }
+                 }
+             }
+         }
+         stage('Copy Report to Workspace'){
+             steps {
+                 script {
+                     sh '''
+                         
+                         docker cp owasp:/zap/wrk/report.xml ${WORKSPACE}/report.xml
+                         docker stop owasp
+                         docker rm owasp
+                     '''
+                 }
+             }
+         }
+         
         stage('Send Approval Email for Production') {
             steps {
                 emailext (
