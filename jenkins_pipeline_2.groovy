@@ -2,7 +2,7 @@ pipeline {
     agent any
     environment {
         Git_Hub_URL             = 'https://github.com/GOMATHISANKAR22/DockerFile.git'
-        Workspace_name          = 'Pipeline_1'
+        Workspace_name          = 'Pipeline_2'
         Cloudformation_Template = 'ECS-Fargate.yaml'
         Bucket_Name             = 'awsstoragedeploy123'
         Image_Name              = 'test1'
@@ -10,7 +10,10 @@ pipeline {
         Aws_Id                  = '811187436843'
         Stack_Name              = 'my-stack'
         MailToRecipients        = 'sairamgs22@gmail.com'
-        SonarQube_Report_URL    = 'http://52.91.192.152:9000/dashboard?id=New'
+        SonarQube_Report_URL    = 'http://54.91.169.96:9000/dashboard?id=New'
+        Bucket_Name_Prod        = 'productionbucket2210'
+        Prod_Template           = 'ECS-Fargate-Prod.yaml'
+        Prod_Stack_Name         = 'my-stack-prod'
     }
     parameters {
         string  (name: 'Version_Number', defaultValue: '1.0', description: 'Version Number')
@@ -19,9 +22,9 @@ pipeline {
                  description: 'Type of scan that is going to perform inside the container',
                  name: 'SCAN_TYPE')
  
-        string (defaultValue: "http://my-st-loadb-wmpwjviuaw2u-1026254778.us-east-1.elb.amazonaws.com/",
-                 description: 'Target URL to scan',
-                 name: 'TARGET')
+      //  string (defaultValue: "http://my-st-loadb-13OBTKDSCUDQ3-776260702.us-east-1.elb.amazonaws.com",
+        //         description: 'Target URL to scan',
+          //       name: 'TARGET')
  
         booleanParam (defaultValue: true,
                  description: 'Parameter to know if wanna generate report.',
@@ -80,14 +83,15 @@ pipeline {
                 sh '''
                 cd /var/lib/jenkins/workspace/${Workspace_name}
                 sudo docker build -t ${Image_Name} .
+                sudo chmod 666 /var/run/docker.sock
                 '''
             }
         }
         stage('Push') {
             steps {
                 sh '''
+                sudo aws --region ${Region_Name} ecr get-login-password | sudo docker login --username AWS --password-stdin ${Aws_Id}.dkr.ecr.${Region_Name}.amazonaws.com
                 sudo aws ecr create-repository --repository-name ${Image_Name} --region ${Region_Name} || true     
-                sudo aws ecr get-login-password --region ${Region_Name} | docker login --username AWS --password-stdin ${Aws_Id}.dkr.ecr.${Region_Name}.amazonaws.com
                 sudo docker tag ${Image_Name}:latest ${Aws_Id}.dkr.ecr.${Region_Name}.amazonaws.com/${Image_Name}:${Version_Number}
                 sudo docker push ${Aws_Id}.dkr.ecr.${Region_Name}.amazonaws.com/${Image_Name}:${Version_Number}
                 '''
@@ -125,7 +129,7 @@ pipeline {
                         script {
                             sh '''
                             sudo aws cloudformation update-stack --stack-name ${Stack_Name} --template-url https://${Bucket_Name}.s3.amazonaws.com/${Cloudformation_Template} --capabilities CAPABILITY_NAMED_IAM  --parameters ParameterKey=ImageId,ParameterValue=${Aws_Id}.dkr.ecr.${Region_Name}.amazonaws.com/${Image_Name}:${Version_Number} || true
-                            '''
+                           '''
                         }
                     } else {
                         script {
@@ -134,12 +138,23 @@ pipeline {
                             '''
                         }
                     }
+
+                }
+            }
+        }
+       stage('Get loadbalancer DNS and save it in a file') {
+            steps {
+                script {
+                    sh '''
+                    sudo aws cloudformation describe-stacks --stack-name ${Stack_Name} --query "Stacks[0].Outputs[?OutputKey=='ALBEndpoint'].OutputValue" --output text > /var/lib/jenkins/workspace/${Workspace_name}/LoadBalancerDNS.txt
+                    '''
                 }
             }
         }
         stage('Setup owasp') {
             steps {
                 script {
+                    
                     echo "Pulling up last OWASP ZAP container --> Start"
                          sh 'docker pull owasp/zap2docker-stable'
                          echo "Pulling up last VMS container --> End"
@@ -168,12 +183,16 @@ pipeline {
          stage('Scanning target on owasp container') {
              steps {
                  script {
+                    def ALBEndpoint = sh(
+                        returnStdout: true,
+                        script: 'cat /var/lib/jenkins/workspace/${Workspace_name}/LoadBalancerDNS.txt'
+                    )
                      scan_type = "${params.SCAN_TYPE}"
                      echo "----> scan_type: $scan_type"
-                     target = "${params.TARGET}"
+                     target = "http://${ALBEndpoint}/"
                      if(scan_type == "Baseline"){
                          sh """
-                             docker exec owasp zap-baseline.py -t $target -x report.xml -I
+                             docker exec owasp zap-baseline.py -t $target -x report.xml -I 
                          """
                      }
                     else if(scan_type == "Full"){
@@ -218,6 +237,38 @@ pipeline {
             steps {
                 timeout(time: 900, unit: 'MINUTES') {
                     input message: 'Please approve the deploy process by clicking the link provided in the email.', ok: 'Proceed'
+                }
+            }
+        }
+        stage('Copy production.yml to s3') {
+            steps {
+                sh '''
+                aws s3 mb s3://${Bucket_Name_Prod}
+                aws s3api put-bucket-versioning --bucket ${Bucket_Name_Prod} --versioning-configuration Status=Enabled
+                aws s3 cp /var/lib/jenkins/workspace/${Workspace_name}/${Prod_Template} s3://${Bucket_Name_Prod}/ 
+                '''
+            }
+            }
+        stage('Deploy Production') {
+            steps {
+                script {
+                    def stackExists = sh(
+                        returnStatus: true,
+                        script: 'aws cloudformation describe-stacks --stack-name ${Prod_Stack_Name}'
+                    )
+                    if (stackExists == 0) {
+                        script {
+                            sh '''
+                            sudo aws cloudformation update-stack --stack-name ${Prod_Stack_Name} --template-url https://${Bucket_Name_Prod}.s3.amazonaws.com/${Prod_Template} --capabilities CAPABILITY_NAMED_IAM  --parameters ParameterKey=ImageId,ParameterValue=${Aws_Id}.dkr.ecr.${Region_Name}.amazonaws.com/${Image_Name}:${Version_Number} || true
+                            '''
+                        }
+                    } else {
+                        script {
+                            sh '''
+                            sudo aws cloudformation create-stack --stack-name ${Prod_Stack_Name} --template-url https://${Bucket_Name_Prod}.s3.amazonaws.com/${Prod_Template} --capabilities CAPABILITY_NAMED_IAM  --parameters ParameterKey=ImageId,ParameterValue=${Aws_Id}.dkr.ecr.${Region_Name}.amazonaws.com/${Image_Name}:${Version_Number}
+                            '''
+                        }
+                    }
                 }
             }
         }
