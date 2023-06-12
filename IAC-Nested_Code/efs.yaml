@@ -1,0 +1,172 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Cloudformation template for ecs cluster with fargate'
+Parameters:
+  ClusterName:
+    Type: String 
+    Description: Name for Cluster. 
+    Default: ECS
+
+  VPC:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC to deploy the cluster into
+
+  VpcCIDR:
+    Type: String
+    Description: CIDR of the VPC
+    Default: 10.192.0.0/16
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet::Id
+    Description: Public subnet 1 to deploy the cluster into
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet::Id
+    Description: Public subnet 2 to deploy the cluster into
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet::Id
+    Description: Private subnet 1 to deploy the cluster into
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet::Id
+    Description: Private subnet 2 to deploy the cluster into
+
+  PerformanceMode:
+    Type: String
+    AllowedValues: [ generalPurpose, maxIO ]
+    Default: generalPurpose
+
+  EfsProvisionedThroughputInMibps:
+    Type: Number
+    MinValue: 0
+    MaxValue: 1024
+    Default: 0
+
+  ThroughputMode:
+    Type: String
+    AllowedValues: [ bursting, provisioned ]
+    Default: bursting
+
+Rules:
+  ProvisionedThroughput:
+    RuleCondition: !Equals [ !Ref ThroughputMode, provisioned ]
+    Assertions:
+      - Assert: !Not [ !Equals [ '0', !Ref EfsProvisionedThroughputInMibps ] ]
+        AssertDescription: "EfsProvisionedThroughputInMibps must be greater than 0 when ThroughputMode is provisioned"
+  BurstingThroughput:
+    RuleCondition: !Equals [ !Ref ThroughputMode, bursting ]
+    Assertions:
+      - Assert:  !Equals [ '0', !Ref EfsProvisionedThroughputInMibps ]
+        AssertDescription: "EfsProvisionedThroughputInMibps must be 0 when ThroughputMode is bursting"
+
+Conditions:
+  IsProvisioned:
+    !Equals [ !Ref ThroughputMode, provisioned ]
+    
+Resources:
+  EFSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Enable EFS access via port 2049"
+      SecurityGroupIngress:
+        - CidrIp: !Ref VpcCIDR
+          IpProtocol: tcp
+          FromPort: 2049
+          ToPort: 2049
+          Description: "For enabling EFS access"
+      SecurityGroupEgress:
+        - CidrIp: !Ref VpcCIDR
+          IpProtocol: tcp
+          FromPort: 2049
+          ToPort: 2049
+          Description: "For enabling EFS access"
+      VpcId: !Ref VPC
+
+  EFSFileSystem:
+    Type: AWS::EFS::FileSystem
+    Properties:
+      Encrypted: true
+      PerformanceMode: !Ref PerformanceMode
+      FileSystemPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Action:
+              - elasticfilesystem:ClientMount
+              - elasticfilesystem:ClientRootAccess
+              - elasticfilesystem:ClientWrite
+            Principal:
+                AWS: !GetAtt ECSTaskRole.Arn
+      ProvisionedThroughputInMibps: !If [ IsProvisioned, !Ref EfsProvisionedThroughputInMibps, !Ref 'AWS::NoValue' ]
+      ThroughputMode: !Ref ThroughputMode
+      FileSystemTags:
+        - Key: Name
+          Value: !Ref ClusterName
+
+  MountTargetPublicSubnet1:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref EFSFileSystem
+      SecurityGroups: [ !Ref EFSSecurityGroup ]
+      SubnetId: !Ref PrivateSubnet1
+  
+  MountTargetPublicSubnet2:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref EFSFileSystem
+      SecurityGroups: [ !Ref EFSSecurityGroup ]
+      SubnetId: !Ref PrivateSubnet2
+
+  AccessPointSites:
+      Type: 'AWS::EFS::AccessPoint'
+      Properties:
+        AccessPointTags: 
+          - Key: "Name"
+            Value: "sites"
+        FileSystemId: !Ref EFSFileSystem
+        PosixUser:
+          Uid: "33"
+          Gid: "33"
+        RootDirectory:
+          CreationInfo:
+            OwnerGid: "33"
+            OwnerUid: "33"
+            Permissions: "0755"
+          Path: "/sites"
+
+  ECSTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: EFSAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 
+                 - elasticfilesystem:ClientMount
+                 - elasticfilesystem:ClientRootAccess                 
+                 - elasticfilesystem:ClientWrite
+                Resource: '*'
+                Condition:
+                  StringEquals:
+                    'aws:TagKeys/Name': !Ref ClusterName
+
+Outputs:
+  FileSystemId:
+    Description: "EFS FileSystemId"
+    Value: !Ref EFSFileSystem
+
+  AccessPointId:
+    Description: "EFS AccessPointId"
+    Value: !Ref AccessPointSites
+
+  TaskRole:
+    Description: "ECS Task Role"
+    Value: !GetAtt ECSTaskRole.Arn

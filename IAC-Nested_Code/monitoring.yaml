@@ -1,0 +1,43 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Cloudformation template for ecs cluster with fargate'
+Parameters:
+  ClusterName:
+    Type: String 
+    Description: Name for Cluster. 
+    Default: ECS
+
+  ServiceName:
+    Type: String 
+    Description: Name for Service. 
+    
+Resources:
+  ECSAlarm:
+    Type: 'AWS::CloudWatch::Alarm'
+    DependsOn:
+         - SnsTopic
+    Properties:
+      AlarmName: !Sub ${AWS::StackName}-ECSAlarm
+      AlarmDescription: ECS Alarm
+      Namespace: AWS/ECS
+      MetricName: CPUUtilization
+      Dimensions:
+        - Name: ClusterName
+          Value: !Ref ClusterName
+        - Name: ServiceName
+          Value: !Ref ServiceName
+      Statistic: Average
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 80
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref SnsTopic
+      TreatMissingData: notBreaching
+
+  SnsTopic:
+    Type: 'AWS::SNS::Topic'
+    Properties:
+      DisplayName: SNS      
+      Subscription:
+        - Endpoint: sairamgs22@gmail.com
+          Protocol: email

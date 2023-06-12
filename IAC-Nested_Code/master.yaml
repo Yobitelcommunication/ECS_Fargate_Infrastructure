@@ -1,0 +1,126 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'VPC with public and private subnets'
+Parameters:
+  ImageId:
+    Type: String
+    Description: The ID of the container image to use
+
+  ClusterName:
+    Type: String 
+    Description: Name for Cluster. 
+    Default: ECS
+
+  VpcCIDR:
+    Description: Please enter the IP range (CIDR notation) for this VPC
+    Type: String
+    Default: 10.192.0.0/16
+
+  PublicSubnet1CIDR:
+    Description: Please enter the IP range (CIDR notation) for the public subnet in the first Availability Zone
+    Type: String
+    Default: 10.192.10.0/24
+
+  PublicSubnet2CIDR:
+    Description: Please enter the IP range (CIDR notation) for the public subnet in the second Availability Zone
+    Type: String
+    Default: 10.192.11.0/24
+
+  PrivateSubnet1CIDR:
+    Description: Please enter the IP range (CIDR notation) for the private subnet in the first Availability Zone
+    Type: String
+    Default: 10.192.12.0/24
+
+  PrivateSubnet2CIDR:
+    Description: Please enter the IP range (CIDR notation) for the private subnet in the second Availability Zone
+    Type: String
+    Default: 10.192.13.0/24
+  
+  PerformanceMode:
+    Type: String
+    AllowedValues: [ generalPurpose, maxIO ]
+    Default: generalPurpose
+
+  EfsProvisionedThroughputInMibps:
+    Type: Number
+    MinValue: 0
+    MaxValue: 1024
+    Default: 0
+
+  ThroughputMode:
+    Type: String
+    AllowedValues: [ bursting, provisioned ]
+    Default: bursting
+
+Rules:
+  ProvisionedThroughput:
+    RuleCondition: !Equals [ !Ref ThroughputMode, provisioned ]
+    Assertions:
+      - Assert: !Not [ !Equals [ '0', !Ref EfsProvisionedThroughputInMibps ] ]
+        AssertDescription: "EfsProvisionedThroughputInMibps must be greater than 0 when ThroughputMode is provisioned"
+  BurstingThroughput:
+    RuleCondition: !Equals [ !Ref ThroughputMode, bursting ]
+    Assertions:
+      - Assert:  !Equals [ '0', !Ref EfsProvisionedThroughputInMibps ]
+        AssertDescription: "EfsProvisionedThroughputInMibps must be 0 when ThroughputMode is bursting"
+
+Conditions:
+  IsProvisioned:
+    !Equals [ !Ref ThroughputMode, provisioned ]
+
+
+Resources:
+  VPC:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://yamlclusterecs.s3.amazonaws.com/vpc.yaml
+      Parameters:
+        VpcCIDR: !Ref VpcCIDR
+        PublicSubnet1CIDR: !Ref PublicSubnet1CIDR
+        PublicSubnet2CIDR: !Ref PublicSubnet2CIDR
+        PrivateSubnet1CIDR: !Ref PrivateSubnet1CIDR
+        PrivateSubnet2CIDR: !Ref PrivateSubnet2CIDR
+
+  EFS:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://yamlclusterecs.s3.amazonaws.com/efs.yaml
+      Parameters:
+        PerformanceMode: !Ref PerformanceMode
+        ThroughputMode: !Ref ThroughputMode
+        ClusterName: !Ref ClusterName
+        VpcCIDR: !Ref VpcCIDR
+        VPC: !GetAtt VPC.Outputs.VPC
+        PublicSubnet1: !GetAtt VPC.Outputs.PublicSubnet1
+        PublicSubnet2: !GetAtt VPC.Outputs.PublicSubnet2
+        PrivateSubnet1: !GetAtt VPC.Outputs.PrivateSubnet1
+        PrivateSubnet2: !GetAtt VPC.Outputs.PrivateSubnet2
+
+  Cluster:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://yamlclusterecs.s3.amazonaws.com/ecs.yaml
+      Parameters:
+        ClusterName: !Ref ClusterName
+        ImageId: !Ref ImageId
+        VPC: !GetAtt VPC.Outputs.VPC
+        PublicSubnet1: !GetAtt VPC.Outputs.PublicSubnet1
+        PublicSubnet2: !GetAtt VPC.Outputs.PublicSubnet2
+        PrivateSubnet1: !GetAtt VPC.Outputs.PrivateSubnet1
+        PrivateSubnet2: !GetAtt VPC.Outputs.PrivateSubnet2
+        FileSystemId: !GetAtt EFS.Outputs.FileSystemId
+        AccessPointId: !GetAtt EFS.Outputs.AccessPointId  
+        ECSTaskRole: !GetAtt EFS.Outputs.TaskRole 
+
+  Monitoring:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://yamlclusterecs.s3.amazonaws.com/monitoring.yaml
+      Parameters:
+        ClusterName: !Ref ClusterName
+        ServiceName: !GetAtt Cluster.Outputs.service
+        
+Outputs:
+     ALBEndpoint:
+      Description: "ALB endpoint"
+      Value: 
+       !GetAtt Cluster.Outputs.ALBEndpoint
