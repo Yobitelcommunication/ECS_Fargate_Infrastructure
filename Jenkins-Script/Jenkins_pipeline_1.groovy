@@ -1,7 +1,7 @@
 pipeline {
     agent any
     environment {
-        Git_Hub_URL             = 'https://github.com/GOMATHISANKAR22/DockerFile.git'
+        Git_Hub_URL             = 'https://github.com/GOMATHISANKAR22/ECS_Fargate_Infrastructure.git'
         Workspace_name          = 'test1'
         Cloudformation_Template = 'ECS-Fargate.yml'
         Bucket_Name             = 'awsstoragedeploy123'
