@@ -1,0 +1,242 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Cloudformation template for ecs cluster with fargate'
+
+Parameters:
+  VPC:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC to deploy the cluster into
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet::Id
+    Description: Public subnet 1 to deploy the cluster into
+
+  PrivateSubnet:
+    Type: AWS::EC2::Subnet::Id
+    Description: Private subnet 1 to deploy the cluster into
+
+  ImageId:
+    Type: String
+    Description: The ID of the container image to use
+
+  ClusterName:
+    Type: String 
+    Description: Name for Cluster. 
+
+  FileSystemId:
+    Type: String
+    Description: The ID of the EFS file system to use
+
+  AccessPointId:
+    Type: String
+    Description: The ID of the EFS access point to use
+
+  ECSTaskRole:
+    Type: String
+    Description: The ARN of the ECS task role to use
+
+  ContainerPort:
+    Type: Number
+    Description: The port the container listens on
+
+  MinCapacity:
+    Type: Number
+    Description: The minimum number of tasks to run
+
+  MaxCapacity:
+    Type: Number
+    Description: The maximum number of tasks to run
+
+  TaskCpu:
+    Type: Number
+    Description: The number of CPU units to allocate to the task
+
+  TaskMemory:
+    Type: Number
+    Description: The amount of memory to allocate to the task
+
+  ContainerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Security Group for ECS
+  
+Resources:
+  cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Join ['-', [!Ref ClusterName, Cluster]] 
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy'
+
+  AutoScalingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceAutoscaleRole'
+
+  AutoScalingTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    DependsOn: service
+    Properties:
+      MinCapacity: !Ref MinCapacity
+      MaxCapacity: !Ref MaxCapacity
+      ResourceId: !Join ['/', [service, !Ref cluster, !GetAtt service.Name]]
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+      RoleARN: !GetAtt AutoScalingRole.Arn
+
+  AutoScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Join ['', [!Ref ClusterName, AutoScalingPolicy]]
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref AutoScalingTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        ScaleInCooldown: 10
+        ScaleOutCooldown: 10
+        TargetValue: 75
+
+  service:
+    Type: AWS::ECS::Service
+    DependsOn: 
+    - listener
+    Properties:
+      ServiceName: !Join ['-',[!Ref ClusterName, service]]
+      Cluster: !Ref cluster
+      TaskDefinition: !Ref taskdefinition
+      EnableExecuteCommand: true
+      DeploymentConfiguration:
+          MinimumHealthyPercent: 100
+          MaximumPercent: 200
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration: 
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets:
+            - !Ref PrivateSubnet
+          SecurityGroups:
+            - !Ref ContainerSecurityGroup
+      LoadBalancers:
+        - ContainerName: !Join ["-",[!Ref ClusterName,container]]
+          ContainerPort: !Ref ContainerPort
+          TargetGroupArn: !Ref targetgroup
+  
+  targetgroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    DependsOn: loadbalancer
+    Properties:
+      HealthCheckProtocol: TCP
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 10
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Port: 80
+      Protocol: TCP
+      VpcId: !Ref VPC
+      TargetType: ip
+    
+
+  listener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - TargetGroupArn: !Ref targetgroup
+          Type: forward
+      LoadBalancerArn: !Ref loadbalancer
+      Port: 80
+      Protocol: TCP
+
+  loadbalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:      
+      Scheme: internet-facing
+      Type: network
+      Subnets:
+        - !Ref PublicSubnet
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Join ['', [/ecs/, !Ref ClusterName, taskdefinition]]
+      RetentionInDays: 30
+
+  taskdefinition: 
+    Type: AWS::ECS::TaskDefinition
+    Properties: 
+      RequiresCompatibilities:
+        - "FARGATE"
+      Family: !Join ["-",[!Ref ClusterName,td]]
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      TaskRoleArn: !Ref ECSTaskRole
+      ContainerDefinitions:
+        -
+          
+          Image: !Ref ImageId
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-region: !Ref AWS::Region
+              awslogs-group: !Ref LogGroup
+              awslogs-stream-prefix: ecs
+          MountPoints:
+            - 
+              ContainerPath: "/mnt"
+              SourceVolume: "sites"
+          Name: !Join ["-",[!Ref ClusterName,container]]
+          PortMappings:
+            -
+              ContainerPort: !Ref ContainerPort
+              HostPort: !Ref ContainerPort
+              Protocol: tcp
+               
+
+      Cpu: !Ref TaskCpu
+      Memory: !Ref TaskMemory
+      NetworkMode: awsvpc
+      Volumes:
+        - 
+          Name: sites
+          EFSVolumeConfiguration:
+            FilesystemId: !Ref FileSystemId
+            AuthorizationConfig:
+              IAM: ENABLED
+              AccessPointId: !Ref AccessPointId
+            TransitEncryption: ENABLED
+            RootDirectory: "/"
+
+
+Outputs:
+  Endpoint:
+    Description: "ALB endpoint"
+    Value: 
+      !GetAtt loadbalancer.DNSName
+  ClusterName:
+    Description: "Cluster Name"
+    Value: !Ref ClusterName
+  service:
+    Description: "Service Name"
+    Value: !Ref service
+  loadbalancer:
+    Description: "Load Balancer Name"
+    Value: !Ref loadbalancer
+  

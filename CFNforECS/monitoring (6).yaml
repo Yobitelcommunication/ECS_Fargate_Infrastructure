@@ -1,0 +1,155 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Cloudformation template for ecs cluster with fargate'
+Parameters:
+  ClusterName:
+    Type: String 
+    Description: Name for Cluster. 
+
+  ServiceName:
+    Type: String 
+    Description: Name for Service.
+
+  EmailId: 
+    Type: String
+    Description: Provide email to receive the alarm notifications for CPU Utilization of ECS Service (This product collects Email ID for the sole purpose of sending alarm notifications internally. It does not store or use for any other purpose.)
+
+  CPUAlarmThreshold:
+    Type: Number
+    Description: CPU Alarm Threshold
+    
+Resources:
+  ECSAlarm:
+    Type: 'AWS::CloudWatch::Alarm'
+    DependsOn:
+         - SnsTopic
+    Properties:
+      AlarmName: !Sub ${AWS::StackName}-ECSAlarm
+      AlarmDescription: ECS Alarm
+      Namespace: AWS/ECS
+      MetricName: CPUUtilization
+      Dimensions:
+        - Name: ClusterName
+          Value: !Ref ClusterName
+        - Name: ServiceName
+          Value: !Ref ServiceName
+      Statistic: Average
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: !Ref CPUAlarmThreshold
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref SnsTopic
+      TreatMissingData: notBreaching
+
+  SnsTopic:
+    Type: 'AWS::SNS::Topic'
+    Properties:
+      DisplayName: SNS      
+      Subscription:
+        - Endpoint: !Ref EmailId
+          Protocol: email
+ 
+  CloudTrail:
+    Type: 'AWS::CloudTrail::Trail'
+    DependsOn:
+         - S3Bucket
+         - CloudTrailRole
+    Properties:
+      IsLogging: true
+      IsMultiRegionTrail: true
+      IncludeGlobalServiceEvents: true
+      S3BucketName: !Ref S3Bucket
+      S3KeyPrefix: CloudTrail
+      EnableLogFileValidation: true
+      CloudWatchLogsLogGroupArn: !GetAtt CloudTrailLogGroup.Arn
+      CloudWatchLogsRoleArn: !GetAtt CloudTrailRole.Arn
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-CloudTrail
+
+  CloudTrailLogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      LogGroupName: !Sub ${AWS::StackName}-CloudTrail
+      RetentionInDays: 365
+
+  CloudTrailRole:
+    Type: 'AWS::IAM::Role'
+    DependsOn:
+         - S3Bucket
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - cloudtrail.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: CloudTrailPolicy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:GetBucketAcl'
+                  - 's3:PutObject'
+                  - 's3:GetBucketLocation'
+                  - 's3:GetObject'
+                  - 's3:ListBucket'
+                Resource:
+                  - !Sub arn:aws:s3:::${S3Bucket}
+                  - !Sub arn:aws:s3:::${S3Bucket}/*
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource:
+                  - !GetAtt CloudTrailLogGroup.Arn
+      ManagedPolicyArns:
+       - 'arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceRole'
+       - 'arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy'
+
+  S3Bucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      AccessControl: BucketOwnerFullControl
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-CloudTrail
+        
+  S3BucketPolicy:
+    Type: 'AWS::S3::BucketPolicy'
+    DependsOn:
+         - S3Bucket
+    Properties:
+      Bucket: !Ref S3Bucket
+      PolicyDocument:
+        Statement:
+          - Action:
+              - 's3:GetBucketAcl'
+              - 's3:GetBucketLocation'
+              - 's3:ListBucket'
+            Effect: Allow
+            Principal:
+              Service:
+                - cloudtrail.amazonaws.com
+            Resource: !Sub arn:aws:s3:::${S3Bucket}
+          - Action:
+              - 's3:PutObject'
+            Condition:
+              StringEquals:
+                s3:x-amz-acl: 'bucket-owner-full-control'
+            Effect: Allow
+            Principal:
+              Service:
+                - cloudtrail.amazonaws.com
+            Resource: !Sub arn:aws:s3:::${S3Bucket}/*
+          - Action:
+              - 's3:GetObject'
+            Effect: Allow
+            Principal:
+              Service:
+                - cloudtrail.amazonaws.com
+            Resource: !Sub arn:aws:s3:::${S3Bucket}/*

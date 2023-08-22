@@ -1,0 +1,89 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Parameters:
+  VPC:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC to deploy the cluster into
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet::Id
+    Description: Public subnet 1 to deploy the cluster into
+
+  PrivateSubnet:
+    Type: AWS::EC2::Subnet::Id
+    Description: Private subnet 1 to deploy the cluster into
+
+  DBSubnetCIDR:
+    Type: String
+    Description: The CIDR block for the database subnet
+
+  DatabaseAZ:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Description: The availability zone for the database
+
+  DBName:
+    Type: String
+    Description: The name of the database to create
+
+  DBUser:
+    Type: String
+    Description: The username to use for the database
+
+  DBPassword:
+    NoEcho: 'true'
+    Type: String
+    Description: The password to use for the database
+
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Security Group for RDS
+ 
+Resources:
+  DBCluster:
+    Type: AWS::RDS::DBCluster
+    DependsOn:
+         - DBSubnetGroup
+    Properties:
+      Engine: aurora-mysql
+      EngineVersion: '5.7'
+      EngineMode: serverless
+      DBClusterIdentifier: aurora-cluster
+      DatabaseName: !Ref DBName
+      MasterUsername: !Ref DBUser
+      MasterUserPassword: !Ref DBPassword
+      EnableHttpEndpoint: 'true'
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VpcSecurityGroupIds:
+        - !Ref DBSecurityGroup
+      ScalingConfiguration:
+        AutoPause: 'true'
+        SecondsUntilAutoPause: 300
+        MaxCapacity: 2
+        MinCapacity: 1
+      Tags:
+        - Key: Name
+          Value: aurora-cluster
+
+  DBSubnetGroup:
+     Type: AWS::RDS::DBSubnetGroup
+     Properties:
+      DBSubnetGroupDescription: Subnets available for the Aurora database cluster
+      SubnetIds:
+        - !Ref PrivateSubnet
+        - !Ref DBSubnet
+        
+  DBSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Ref DatabaseAZ
+      CidrBlock: !Ref DBSubnetCIDR
+      Tags:
+        - Key: Name
+          Value: DBSubnet
+
+ 
+Outputs:
+   DBEndpoint:
+    Description: The connection endpoint of your database.
+    Value: !GetAtt DBCluster.Endpoint.Address

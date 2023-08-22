@@ -1,0 +1,99 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Create an EC2 instance with a security group and SSH keypair'
+Parameters:
+  InstanceName:
+    Description: Name of the EC2 instance
+    Type: String
+    Default: Jenkins
+
+  KeyName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: must be the name of an existing EC2 KeyPair.
+
+  InstanceType:
+    Description: EC2 instance type
+    Type: String
+    AllowedValues:
+      - t2.medium
+      - t2.large
+      - t3.medium 
+      - t3.large
+      - m3.large
+      - m3.xlarge
+      - m4.large
+      - m5a.large
+      - m5.xlarge
+      - m5d.large
+      - m5n.large
+      - m5dn.large
+      - m6a.large
+      - m6i.large
+      - c5a.large
+      - c6a.large
+      - c5a.xlarge
+      - c6a.xlarge
+      
+  VolumeSize:
+    Description: Size of the EBS volume in GB
+    Type: Number
+    MinValue: 1
+    MaxValue: 16384
+    ConstraintDescription: must be between 1 and 16384 GB.
+
+  VPC:
+    Description: VPC ID
+    Type: AWS::EC2::VPC::Id
+
+  PublicSubnet:
+    Description: Subnet ID
+    Type: AWS::EC2::Subnet::Id
+
+  Jenkinsami:
+    Description: AMI ID
+    Type: AWS::EC2::Image::Id
+      
+Resources:
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable SSH access via port 22,HTTP,HTTPS,SMTP
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '80'
+          ToPort: '80'
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: '8080'
+          ToPort: '8080'
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: '443'
+          ToPort: '443'
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: '9000'
+          ToPort: '9000'
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: '587'
+          ToPort: '587'
+          CidrIp: 0.0.0.0/0
+
+  Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref Jenkinsami
+      KeyName: !Ref KeyName
+      SecurityGroupIds:
+        - !Ref InstanceSecurityGroup
+      SubnetId: !Ref PublicSubnet
+      Tags:
+        - Key: Name
+          Value: !Ref InstanceName
+Outputs:
+  PublicIP:
+    Description: Public IP address of the created Jenkins EC2 instance
+    Value: !GetAtt Instance.PublicIp

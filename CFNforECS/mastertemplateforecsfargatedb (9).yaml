@@ -1,0 +1,260 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'VPC with public and private subnets'
+
+Parameters:    
+      AvailabilityZone:
+        Description: Select the Availability Zone
+        Type: AWS::EC2::AvailabilityZone::Name
+
+      ContainerPort:
+        Type: Number
+        Description: Enter the port on which the container listens (Eg:80)
+        MinValue: 1
+        MaxValue: 65535
+        ConstraintDescription: must be between 1 and 65535.
+        
+      ImageId:
+        Type: String
+        Description: Enter the Docker Image ID for the container (Eg:httpd:2.4)
+        
+      ClusterName:
+        Type: String 
+        Description: Enter the Name for Cluster. 
+        Default: ECS
+
+      VpcCIDR:
+        Description: Please enter the IP range (CIDR notation) for this VPC(Eg:10.192.0.0/16)
+        Type: String
+        
+      PublicSubnetCIDR:
+        Description: Please enter the IP range (CIDR notation) for the public subnet in the Availability Zone(Eg:10.192.10.0/24)
+        Type: String
+        
+      PrivateSubnetCIDR:
+        Description: Please enter the IP range (CIDR notation) for the private subnet in the Availability Zone(Eg:10.192.12.0/24)
+        Type: String
+
+      TaskCpu:
+        Description: Enter the number of cpu units used by the task (Eg:512) Refer more combinations on https://docs.aws.amazon.com/AmazonECS/latest/userguide/fargate-task-defs.html#fargate-tasks-size
+        Type: Number
+
+      TaskMemory:
+        Description: Enter the amount of memory (in GiB) used by the task (Eg:2) Refer more combinations on https://docs.aws.amazon.com/AmazonECS/latest/userguide/fargate-task-defs.html#fargate-tasks-size
+        Type: Number
+
+      EmailId: 
+        Type: String
+        Description: Provide email to receive the alarm notifications for CPU Utilization of ECS Service (This product collects Email ID for the sole purpose of sending alarm notifications internally. It does not store or use for any other purpose.)
+     
+      DBName:
+        Description: Enter the name for the database 
+        Type: String
+        Default: ""
+
+      DBUser:
+        Description: Enter the username for the database 
+        Type: String
+        Default: ""
+
+      DBPassword:
+        NoEcho: 'true'
+        Description: Enter the password for the database 
+        Type: String
+
+      DBSubnetCIDR:
+        Description: Please enter the IP range (CIDR notation) for the database subnet (Eg:10.192.14.0/24)
+        Type: String
+        Default: ""
+
+      DatabaseAZ:
+        Description: Select the Availability Zone for the database(Note:Do not select the same AZ as the one selected in the VPC configuration)
+        Type: AWS::EC2::AvailabilityZone::Name
+        Default: ""
+
+      EnvironmentvariableKey:
+        Description: Enter the environment variable key for the database connection such as Host,Database,Username,Password in the same order separated by comma (Eg:DB_HOST,DB_DATABASE,DB_USERNAME,DB_PASSWORD)
+        Type: CommaDelimitedList
+        Default: ""
+
+      AccessCIDR:
+        Description: Please set CIDR to x.x.x.x/32 to allow one specific IP address access, 0.0.0.0/0 to allow all IP addresses access, or another CIDR range for application access
+        Type: String
+
+Mappings:
+    RegionMap:
+      us-east-1: 
+        ami: ami-0d64bc69914c67143
+      us-east-2:
+        ami: ami-xxxxxxxxxxxxxxxxx
+      us-west-1:
+        ami: ami-xxxxxxxxxxxxxxxxx
+      us-west-2:
+        ami: ami-xxxxxxxxxxxxxxxxx
+      ca-central-1:
+        ami: ami-xxxxxxxxxxxxxxxxx
+      eu-central-1:
+        ami: ami-xxxxxxxxxxxxxxxxx
+      eu-central-2:
+        ami: ami-xxxxxxxxxxxxxxxxx
+      eu-west-1:
+        ami: ami-xxxxxxxxxxxxxxxxx
+      eu-west-2:
+        ami: ami-xxxxxxxxxxxxxxxxx
+      eu-west-3:
+        ami: ami-xxxxxxxxxxxxxxxxx
+      eu-north-1: 
+        ami: ami-xxxxxxxxxxxxxxxxx
+      eu-south-1:
+        ami: ami-xxxxxxxxxxxxxxxxx
+      eu-south-2:
+        ami: ami-xxxxxxxxxxxxxxxxx
+      ap-northeast-1:
+        ami: ami-xxxxxxxxxxxxxxxxx
+      ap-northeast-2:
+        ami: ami-xxxxxxxxxxxxxxxxx
+      ap-northeast-3:
+        ami: ami-xxxxxxxxxxxxxxxxx
+      ap-southeast-1:
+        ami: ami-xxxxxxxxxxxxxxxxx
+      ap-southeast-2:
+        ami: ami-xxxxxxxxxxxxxxxxx
+      ap-southeast-3:
+        ami: ami-xxxxxxxxxxxxxxxxx
+      ap-southeast-4:
+        ami: ami-xxxxxxxxxxxxxxxxx
+      ap-south-1:
+        ami: ami-xxxxxxxxxxxxxxxxx
+      ap-south-2:
+        ami: ami-xxxxxxxxxxxxxxxxx
+      ap-east-1:
+        ami: ami-xxxxxxxxxxxxxxxxx
+      sa-east-1:
+        ami: ami-xxxxxxxxxxxxxxxxx
+      me-central-1:
+        ami: ami-xxxxxxxxxxxxxxxxx
+      me-south-1:
+        ami: ami-xxxxxxxxxxxxxxxxx
+      af-south-1:
+        ami: ami-xxxxxxxxxxxxxxxxx
+
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+      - Label:
+          default: "VPC Configuration"
+        Parameters:
+          - ClusterName
+          - VpcCIDR
+          - PublicSubnetCIDR
+          - PrivateSubnetCIDR
+          - AvailabilityZone     
+        
+      - Label:
+          default: "Database Configuration"
+        Parameters:
+          - DBName
+          - DBUser
+          - DBPassword
+          - DBSubnetCIDR
+          - DatabaseAZ
+          - EnvironmentvariableKey
+
+      - Label:
+          default: "Container Configuration"
+        Parameters:
+          - TaskCpu
+          - TaskMemory
+          - ContainerPort
+          - ImageId
+          - EmailId 
+          - AccessCIDR
+
+Resources:
+  VPC:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://cloudformationecsfargatemarketplace.s3.amazonaws.com/vpc.yaml
+      Parameters:
+        VpcCIDR: !Ref VpcCIDR
+        ClusterName: !Ref ClusterName
+        ContainerPort: !Ref ContainerPort
+        AccessCIDR: !Ref AccessCIDR
+        PublicSubnetCIDR: !Ref PublicSubnetCIDR
+        PrivateSubnetCIDR: !Ref PrivateSubnetCIDR
+        AvailabilityZone: !Ref AvailabilityZone
+
+  Database:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://cloudformationecsfargatemarketplace.s3.amazonaws.com/database.yaml
+      Parameters:
+        DBName: !Ref DBName
+        DBUser: !Ref DBUser
+        DBPassword: !Ref DBPassword
+        DBSubnetCIDR: !Ref DBSubnetCIDR
+        DatabaseAZ: !Ref DatabaseAZ
+        VPC: !GetAtt VPC.Outputs.VPC
+        PublicSubnet: !GetAtt VPC.Outputs.PublicSubnet
+        PrivateSubnet: !GetAtt VPC.Outputs.PrivateSubnet
+        DBSecurityGroup: !GetAtt VPC.Outputs.DBSecurityGroup
+ 
+  EFS:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://cloudformationecsfargatemarketplace.s3.amazonaws.com/efs.yaml
+      Parameters:
+        PerformanceMode: generalPurpose
+        ThroughputMode: bursting
+        EfsProvisionedThroughputInMibps: 0
+        ClusterName: !Ref ClusterName
+        DBPassword: !Ref DBPassword
+        VpcCIDR: !Ref VpcCIDR
+        VPC: !GetAtt VPC.Outputs.VPC
+        PublicSubnet: !GetAtt VPC.Outputs.PublicSubnet
+        PrivateSubnet: !GetAtt VPC.Outputs.PrivateSubnet
+        EFSSecurityGroup: !GetAtt VPC.Outputs.EFSSecurityGroup
+
+  Cluster:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://cloudformationecsfargatemarketplace.s3.amazonaws.com/ecs.yaml
+      Parameters:
+        ClusterName: !Ref ClusterName
+        ImageId: !Ref ImageId
+        MinCapacity: 1
+        MaxCapacity: 50
+        TaskCpu: !Ref TaskCpu
+        TaskMemory: !Ref TaskMemory
+        ContainerPort: !Ref ContainerPort
+        DBName: !Ref DBName
+        DBUser: !Ref DBUser
+        DBPassword: !Ref DBPassword
+        DatabaseEndpointKey: !Select [0, !Ref EnvironmentvariableKey]
+        DatabaseNameKey: !Select [1, !Ref EnvironmentvariableKey]
+        DatabaseUserKey: !Select [2, !Ref EnvironmentvariableKey]
+        DatabasePasswordKey: !Select [3, !Ref EnvironmentvariableKey]
+        VPC: !GetAtt VPC.Outputs.VPC
+        PublicSubnet: !GetAtt VPC.Outputs.PublicSubnet
+        PrivateSubnet: !GetAtt VPC.Outputs.PrivateSubnet
+        FileSystemId: !GetAtt EFS.Outputs.FileSystemId
+        AccessPointId: !GetAtt EFS.Outputs.AccessPointId  
+        ECSTaskRole: !GetAtt EFS.Outputs.TaskRole 
+        DatabaseEndpoint: !GetAtt Database.Outputs.DBEndpoint
+        Databasesecret: !GetAtt EFS.Outputs.Databasesecret
+        ContainerSecurityGroup: !GetAtt VPC.Outputs.ContainerSecurityGroup
+
+  Monitoring:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://cloudformationecsfargatemarketplace.s3.amazonaws.com/monitoring.yaml
+      Parameters:
+        ClusterName: !Ref ClusterName
+        ServiceName: !GetAtt Cluster.Outputs.service
+        CPUAlarmThreshold: 75
+        EmailId: !Ref EmailId
+                  
+Outputs:
+    Endpoint:
+      Description: "Loadbalancer endpoint"
+      Value: 
+       !GetAtt Cluster.Outputs.Endpoint
